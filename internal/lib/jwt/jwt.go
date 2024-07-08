@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func NewToken(user models.User, tokenTTL time.Duration) (string, error) {
+func NewToken(user *models.User, tokenTTL time.Duration) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 
 	claims := token.Claims.(jwt.MapClaims)

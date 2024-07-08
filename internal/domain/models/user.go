@@ -2,6 +2,7 @@ package models
 
 type User struct {
 	ID       string
+	Login    string
 	Email    string
-	PassHash []byte
+	Password []byte
 }

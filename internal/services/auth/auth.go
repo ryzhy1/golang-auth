@@ -4,9 +4,11 @@ import (
 	"AuthService/internal/domain/models"
 	"AuthService/internal/lib/jwt"
 	"AuthService/internal/storage"
+	"AuthService/middlewares"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"log/slog"
 	"time"
@@ -20,11 +22,11 @@ type Auth struct {
 }
 
 type UserSaver interface {
-	SaveUser(ctx context.Context, email string, passHash []byte) (uid int64, err error)
+	SaveUser(ctx context.Context, zhopa uuid.UUID, login, email string, password []byte, createdAt time.Time) (uid string, err error)
 }
 
 type UserProvider interface {
-	User(ctx context.Context, email string) (user models.User, err error)
+	GetUser(ctx context.Context, input string) (user *models.User, err error)
 }
 
 var (
@@ -46,7 +48,7 @@ func New(
 	}
 }
 
-func (a *Auth) Login(ctx context.Context, email string, password string) (token string, err error) {
+func (a *Auth) Login(ctx context.Context, email, password string) (token string, err error) {
 	const op = "auth.Login"
 
 	log := a.log.With(
@@ -56,7 +58,7 @@ func (a *Auth) Login(ctx context.Context, email string, password string) (token 
 
 	log.Info("logging in")
 
-	user, err := a.userProvider.User(ctx, email)
+	user, err := a.userProvider.GetUser(ctx, email)
 	if err != nil {
 		if errors.Is(err, storage.ErrUserNotFound) {
 			a.log.Warn("user not found", err)
@@ -69,7 +71,7 @@ func (a *Auth) Login(ctx context.Context, email string, password string) (token 
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	if err = bcrypt.CompareHashAndPassword(user.PassHash, []byte(password)); err != nil {
+	if err = bcrypt.CompareHashAndPassword(user.Password, []byte(password)); err != nil {
 		a.log.Info("invalid credentials", err)
 
 		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
@@ -87,7 +89,7 @@ func (a *Auth) Login(ctx context.Context, email string, password string) (token 
 	return token, nil
 }
 
-func (a *Auth) Register(ctx context.Context, email string, password string) (userID int64, err error) {
+func (a *Auth) Register(ctx context.Context, login, email, password string) (userID string, err error) {
 	const op = "auth.Register"
 
 	log := a.log.With(
@@ -101,14 +103,25 @@ func (a *Auth) Register(ctx context.Context, email string, password string) (use
 	if err != nil {
 		log.Error("failed to hash password", err)
 
-		return 0, fmt.Errorf("%s: %w", op, err)
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	id, err := a.userSaver.SaveUser(ctx, email, passHash)
+	uid, err := middlewares.UUIDGenerator()
 	if err != nil {
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	id, err := a.userSaver.SaveUser(ctx, uid, login, email, passHash, time.Now())
+	if err != nil {
+		if errors.Is(err, storage.ErrUserExists) {
+			a.log.Warn("username taken", err)
+
+			return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		}
+
 		log.Error("failed to save user", err)
 
-		return 0, fmt.Errorf("%s: %w", op, err)
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
 	log.Info("user registered", "id", id)

@@ -3,22 +3,24 @@ package auth
 import (
 	"context"
 	ssov1 "github.com/ryzhy1/protos/gen/go/sso"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-import (
-	"google.golang.org/grpc"
-)
-
 type Auth interface {
-	Login(ctx context.Context, email string, password string) (token string, err error)
-	Logout()
-	Register(
+	Login(
 		ctx context.Context,
 		email string,
 		password string,
-	) (userID int64, err error)
+	) (token string, err error)
+	Logout(ctx context.Context) error
+	Register(
+		ctx context.Context,
+		login string,
+		email string,
+		password string,
+	) (userID string, err error)
 }
 
 type serverAPI struct {
@@ -58,7 +60,7 @@ func (s *serverAPI) Register(ctx context.Context, req *ssov1.RegisterRequest) (*
 		return nil, err
 	}
 
-	userID, err := s.auth.Register(ctx, req.GetEmail(), req.GetPassword())
+	userID, err := s.auth.Register(ctx, req.GetUsername(), req.GetEmail(), req.GetPassword())
 	if err != nil {
 		return nil, status.Error(codes.Internal, "internal error")
 	}

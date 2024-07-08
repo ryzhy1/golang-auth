@@ -4,8 +4,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/golang-migrate/migrate/v4"
 )
-import "github.com/golang-migrate/migrate/v4"
 
 func main() {
 	var storagePath, migratorPath, migrationTable string
