@@ -48,17 +48,21 @@ func New(
 	}
 }
 
-func (a *Auth) Login(ctx context.Context, email, password string) (token string, err error) {
+func (a *Auth) Login(ctx context.Context, input, password string) (token string, err error) {
 	const op = "auth.Login"
 
 	log := a.log.With(
 		slog.String("op", op),
-		slog.String("email", email),
+		slog.String("input", input),
 	)
+
+	if status := !middlewares.CheckLogin(input, password); status != true {
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
 
 	log.Info("logging in")
 
-	user, err := a.userProvider.GetUser(ctx, email)
+	user, err := a.userProvider.GetUser(ctx, input)
 	if err != nil {
 		if errors.Is(err, storage.ErrUserNotFound) {
 			a.log.Warn("user not found", err)
@@ -96,6 +100,10 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 		slog.String("op", op),
 		slog.String("email", email),
 	)
+
+	if status := !middlewares.CheckRegister(login, email, password); status != true {
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
 
 	log.Info("registering new user")
 

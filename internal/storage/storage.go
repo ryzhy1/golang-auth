@@ -1,6 +1,8 @@
 package storage
 
-import "errors"
+import (
+	"errors"
+)
 
 var (
 	ErrUserNotFound = errors.New("user not found")

@@ -3,6 +3,7 @@ package postgres
 import (
 	"AuthService/internal/domain/models"
 	"AuthService/internal/storage"
+	"AuthService/middlewares"
 	"context"
 	"database/sql"
 	"errors"
@@ -12,7 +13,6 @@ import (
 	_ "github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
-	"regexp"
 	"time"
 )
 
@@ -25,7 +25,7 @@ type Storage struct {
 }
 
 func New(connStr string) (*Storage, error) {
-	const op = "storage.Postgres.New"
+	const op = "storage.DB.New"
 
 	db, err := sqlx.Open("postgres", connStr)
 	if err != nil {
@@ -66,17 +66,6 @@ func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, login, email strin
 	return id.String(), nil
 }
 
-// IdentifyInputType determines whether the input is an email or login
-func IdentifyInputType(input string) string {
-	const emailPattern = `^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`
-	emailRegex := regexp.MustCompile(emailPattern)
-
-	if emailRegex.MatchString(input) {
-		return "email"
-	}
-	return "login"
-}
-
 // GetUser fetches a user by login or email
 func (s *Storage) GetUser(ctx context.Context, input string) (*models.User, error) {
 	const op = "storage.Postgres.GetUser"
@@ -85,7 +74,7 @@ func (s *Storage) GetUser(ctx context.Context, input string) (*models.User, erro
 	var query string
 	var err error
 
-	switch IdentifyInputType(input) {
+	switch middlewares.IdentifyLoginInputType(input) {
 	case "email":
 		query = "SELECT id, login, email, password FROM users WHERE email = $1"
 		err = s.db.GetContext(ctx, &user, query, input)
