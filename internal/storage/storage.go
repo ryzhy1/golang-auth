@@ -5,6 +5,7 @@ import (
 )
 
 var (
-	ErrUserNotFound = errors.New("user not found")
-	ErrUserExists   = errors.New("user already exists")
+	ErrUserNotFound    = errors.New("user not found")
+	ErrUserExists      = errors.New("user already exists")
+	ErrNoActiveSession = errors.New("user already logged out")
 )

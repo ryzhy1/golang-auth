@@ -1,6 +1,10 @@
 env: "local"
 storage_path: "postgres://postgres:123@localhost:5432/postgres?sslmode=disable"
-token_ttl: 1h
+token_ttl: "3600s"
 grpc:
   port: 50051
-  timeout: 10s
+  timeout: "10s"
+redis:
+  storage: "localhost:6379"
+  password: ""
+  db: 0

@@ -16,13 +16,19 @@ import (
 
 type Auth struct {
 	log          *slog.Logger
+	userLogout   UserLogout
 	userSaver    UserSaver
 	userProvider UserProvider
 	tokenTTL     time.Duration
 }
 
+type UserLogout interface {
+	LogoutUser(ctx context.Context, login, token string) (status bool, err error)
+	SaveUserCache(ctx context.Context, login, token string, duration time.Duration) error
+}
+
 type UserSaver interface {
-	SaveUser(ctx context.Context, zhopa uuid.UUID, login, email string, password []byte, createdAt time.Time) (uid string, err error)
+	SaveUser(ctx context.Context, id uuid.UUID, login, email string, password []byte, createdAt time.Time) (uid string, err error)
 }
 
 type UserProvider interface {
@@ -34,63 +40,14 @@ var (
 )
 
 // New return a new instance of the Auth service
-func New(
-	log *slog.Logger,
-	userSaver UserSaver,
-	userProvider UserProvider,
-	tokenTTL time.Duration,
-) *Auth {
+func New(log *slog.Logger, userLogout UserLogout, userSaver UserSaver, userProvider UserProvider, tokenTTL time.Duration) *Auth {
 	return &Auth{
 		log:          log,
+		userLogout:   userLogout,
 		userSaver:    userSaver,
 		userProvider: userProvider,
 		tokenTTL:     tokenTTL,
 	}
-}
-
-func (a *Auth) Login(ctx context.Context, input, password string) (token string, err error) {
-	const op = "auth.Login"
-
-	log := a.log.With(
-		slog.String("op", op),
-		slog.String("input", input),
-	)
-
-	if status := !middlewares.CheckLogin(input, password); status != true {
-		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
-	}
-
-	log.Info("logging in")
-
-	user, err := a.userProvider.GetUser(ctx, input)
-	if err != nil {
-		if errors.Is(err, storage.ErrUserNotFound) {
-			a.log.Warn("user not found", err)
-
-			return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
-		}
-
-		a.log.Error("failed to get user", err)
-
-		return "", fmt.Errorf("%s: %w", op, err)
-	}
-
-	if err = bcrypt.CompareHashAndPassword(user.Password, []byte(password)); err != nil {
-		a.log.Info("invalid credentials", err)
-
-		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
-	}
-
-	log.Info("user logged in")
-
-	token, err = jwt.NewToken(user, a.tokenTTL)
-	if err != nil {
-		a.log.Error("failed to generate token", err)
-
-		return "", fmt.Errorf("%s: %w", op, err)
-	}
-
-	return token, nil
 }
 
 func (a *Auth) Register(ctx context.Context, login, email, password string) (userID string, err error) {
@@ -101,7 +58,7 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 		slog.String("email", email),
 	)
 
-	if status := !middlewares.CheckRegister(login, email, password); status != true {
+	if status := middlewares.CheckRegister(login, email, password); status != true {
 		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
@@ -137,6 +94,78 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 	return id, nil
 }
 
-func (a *Auth) Logout(ctx context.Context) error {
-	panic("not implemented")
+func (a *Auth) Login(ctx context.Context, input, password string) (token string, err error) {
+	const op = "auth.Login"
+
+	log := a.log.With(
+		slog.String("op", op),
+		slog.String("input", input),
+	)
+
+	if status := middlewares.CheckLogin(input, password); status != true {
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
+
+	log.Info("logging in")
+
+	user, err := a.userProvider.GetUser(ctx, input)
+	if err != nil {
+		if errors.Is(err, storage.ErrUserNotFound) {
+			a.log.Warn("user not found", err)
+
+			return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		}
+
+		a.log.Error("failed to get user", err)
+
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	if err = bcrypt.CompareHashAndPassword(user.Password, []byte(password)); err != nil {
+		a.log.Info("invalid credentials", err)
+
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
+
+	log.Info("user logged in")
+
+	token, err = jwt.NewToken(user, a.tokenTTL)
+	if err != nil {
+		a.log.Error("failed to generate token", err)
+
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	a.log.Info("adding token and user to cache")
+
+	err = a.userLogout.SaveUserCache(ctx, user.Login, token, a.tokenTTL)
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
+func (a *Auth) Logout(ctx context.Context, login, token string) (bool, error) {
+	const op = "auth.Logout"
+
+	log := a.log.With(
+		slog.String("op", op),
+		slog.String("login", login),
+	)
+
+	log.Info("logging out")
+
+	status, err := a.userLogout.LogoutUser(ctx, login, token)
+	if err != nil {
+		if errors.Is(err, storage.ErrNoActiveSession) {
+			a.log.Warn("user already logged out", err)
+
+			return false, fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		}
+
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return status, nil
 }

@@ -3,6 +3,8 @@ package main
 import (
 	"AuthService/internal/app"
 	"AuthService/internal/config"
+	"github.com/joho/godotenv"
+	l "log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,13 +19,18 @@ const (
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		l.Fatalf("Error loading .env file")
+	}
+
 	cfg := config.MustLoad()
 
 	log := setupLogger(cfg.Env)
 
 	log.Info("Starting sso service", "env", cfg.Env)
 
-	application := app.New(log, strconv.Itoa(cfg.GRPC.Port), cfg.Storage, cfg.TokenTTL)
+	application := app.New(log, strconv.Itoa(cfg.GRPC.Port), cfg.Redis.Storage, cfg.Redis.Password, cfg.Redis.Db, cfg.Storage, cfg.TokenTTL)
 
 	go application.GRPCSrv.MustRun()
 

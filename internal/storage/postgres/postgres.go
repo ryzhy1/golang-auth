@@ -16,10 +16,6 @@ import (
 	"time"
 )
 
-var (
-	NullValue = int64(0)
-)
-
 type Storage struct {
 	db *sqlx.DB
 }
@@ -41,6 +37,14 @@ func New(connStr string) (*Storage, error) {
 
 func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, login, email string, passHash []byte, created_at time.Time) (string, error) {
 	const op = "storage.Postgres.SaveUser"
+
+	if u, _ := s.GetUser(ctx, login); u != nil {
+		return "", fmt.Errorf("%s: %w", op, storage.ErrUserExists)
+	}
+
+	if u, _ := s.GetUser(ctx, email); u != nil {
+		return "", fmt.Errorf("%s: %w", op, storage.ErrUserExists)
+	}
 
 	stmt, err := s.db.PrepareContext(ctx, "INSERT INTO users (id, login, email, password, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id")
 	if err != nil {
