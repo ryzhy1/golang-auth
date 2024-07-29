@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"AuthService/internal/services/auth"
 	"context"
+	"errors"
 	ssov1 "github.com/ryzhy1/protos/gen/go/sso"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,6 +29,13 @@ type serverAPI struct {
 	ssov1.UnimplementedAuthServiceServer
 	auth Auth
 }
+
+const (
+	ErrInvalidCredentials = "invalid credentials"
+	ErrUserNotFound       = "user not found"
+	ErrUserAlreadyExists  = "user already exists"
+	ErrNoActiveSession    = "user already logged out"
+)
 
 func Register(gRPC *grpc.Server, auth Auth) {
 	ssov1.RegisterAuthServiceServer(gRPC, &serverAPI{auth: auth})
@@ -68,7 +77,9 @@ func (s *serverAPI) Register(ctx context.Context, req *ssov1.RegisterRequest) (*
 
 	userID, err := s.auth.Register(ctx, req.GetLogin(), req.GetEmail(), req.GetPassword())
 	if err != nil {
-		return nil, status.Error(codes.Internal, "internal error")
+		if errors.Is(err, auth.ErrUserAlreadyExists) {
+			return nil, status.Error(codes.AlreadyExists, "user already exists")
+		}
 	}
 
 	return &ssov1.RegisterResponse{

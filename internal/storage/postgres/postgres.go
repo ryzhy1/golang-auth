@@ -39,11 +39,11 @@ func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, login, email strin
 	const op = "storage.Postgres.SaveUser"
 
 	if u, _ := s.GetUser(ctx, login); u != nil {
-		return "", fmt.Errorf("%s: %w", op, storage.ErrUserExists)
+		return "", fmt.Errorf("%s: %w", op, storage.ErrUserAlreadyExists)
 	}
 
 	if u, _ := s.GetUser(ctx, email); u != nil {
-		return "", fmt.Errorf("%s: %w", op, storage.ErrUserExists)
+		return "", fmt.Errorf("%s: %w", op, storage.ErrUserAlreadyExists)
 	}
 
 	stmt, err := s.db.PrepareContext(ctx, "INSERT INTO users (id, login, email, password, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id")
@@ -61,7 +61,7 @@ func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, login, email strin
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
-			return "", fmt.Errorf("%s: %w", op, storage.ErrUserExists)
+			return "", fmt.Errorf("%s: %w", op, storage.ErrUserAlreadyExists)
 		}
 
 		return "", fmt.Errorf("%s: %w", op, err)

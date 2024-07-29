@@ -37,6 +37,7 @@ type UserProvider interface {
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrUserAlreadyExists  = errors.New("user already exists")
 )
 
 // New return a new instance of the Auth service
@@ -78,10 +79,10 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 
 	id, err := a.userSaver.SaveUser(ctx, uid, login, email, passHash, time.Now())
 	if err != nil {
-		if errors.Is(err, storage.ErrUserExists) {
-			a.log.Warn("username taken", err)
+		if errors.Is(err, storage.ErrUserAlreadyExists) {
+			a.log.Warn("user already exists", err)
 
-			return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+			return "", fmt.Errorf("%s: %w", op, err)
 		}
 
 		log.Error("failed to save user", err)
@@ -113,7 +114,7 @@ func (a *Auth) Login(ctx context.Context, input, password string) (token string,
 		if errors.Is(err, storage.ErrUserNotFound) {
 			a.log.Warn("user not found", err)
 
-			return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+			return "", fmt.Errorf("%s: %w", op, err)
 		}
 
 		a.log.Error("failed to get user", err)
