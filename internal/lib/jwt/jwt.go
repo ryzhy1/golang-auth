@@ -43,6 +43,20 @@ func VerifyToken(tokenString string) (*jwt.Token, error) {
 	return token, nil
 }
 
+func GetUserIDFromToken(token *jwt.Token) (string, error) {
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return "", fmt.Errorf("invalid token")
+	}
+
+	userID, ok := claims["id"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid user_id in token claims")
+	}
+
+	return userID, nil
+}
+
 func RefreshToken(ctx context.Context, redisStorage *redis.Storage, refreshTokenString string) (string, error) {
 	token, err := VerifyToken(refreshTokenString)
 	if err != nil {

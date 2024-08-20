@@ -1,4 +1,4 @@
 run:
-  config=./config/local.yaml go run cmd/main.go
+	go run cmd/sso/main.go
 migrate:
-  config=./config/local.yaml go run cmd/migrate.go
+	go run cmd/migrate.go

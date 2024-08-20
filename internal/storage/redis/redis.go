@@ -55,10 +55,10 @@ func (s *Storage) IsTokenValid(ctx context.Context, token string) bool {
 	return result == 1
 }
 
-func (s *Storage) LogoutUser(ctx context.Context, login, token string) (bool, error) {
+func (s *Storage) LogoutUser(ctx context.Context, token string) (bool, error) {
 	const op = "storage.Redis.LogoutUser"
 
-	user, err := s.db.Exists(ctx, login).Result()
+	user, err := s.db.Exists(ctx, token).Result()
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", op, err)
 	}
@@ -67,7 +67,7 @@ func (s *Storage) LogoutUser(ctx context.Context, login, token string) (bool, er
 		return false, fmt.Errorf("%s: %w", op, storage.ErrNoActiveSession)
 	}
 
-	if err = s.db.Del(ctx, login, token).Err(); err != nil {
+	if err = s.db.Del(ctx, token).Err(); err != nil {
 		return false, fmt.Errorf("%s: %w", op, err)
 	}
 

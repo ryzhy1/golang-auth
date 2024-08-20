@@ -23,7 +23,7 @@ type Auth struct {
 }
 
 type UserLogout interface {
-	LogoutUser(ctx context.Context, login, token string) (status bool, err error)
+	LogoutUser(ctx context.Context, token string) (status bool, err error)
 	SaveUserCache(ctx context.Context, login, token string, duration time.Duration) error
 }
 
@@ -147,17 +147,16 @@ func (a *Auth) Login(ctx context.Context, input, password string) (token string,
 	return token, nil
 }
 
-func (a *Auth) Logout(ctx context.Context, login, token string) (bool, error) {
+func (a *Auth) Logout(ctx context.Context, token string) (bool, error) {
 	const op = "auth.Logout"
 
 	log := a.log.With(
 		slog.String("op", op),
-		slog.String("login", login),
 	)
 
 	log.Info("logging out")
 
-	status, err := a.userLogout.LogoutUser(ctx, login, token)
+	status, err := a.userLogout.LogoutUser(ctx, token)
 	if err != nil {
 		if errors.Is(err, storage.ErrNoActiveSession) {
 			a.log.Warn("user already logged out", err)

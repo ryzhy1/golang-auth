@@ -16,7 +16,7 @@ type Auth interface {
 		email string,
 		password string,
 	) (token string, err error)
-	Logout(ctx context.Context, login, token string) (boolean bool, err error)
+	Logout(ctx context.Context, token string) (boolean bool, err error)
 	Register(
 		ctx context.Context,
 		login string,
@@ -61,7 +61,7 @@ func (s *serverAPI) Login(ctx context.Context, req *ssov1.LoginRequest) (*ssov1.
 }
 
 func (s *serverAPI) Logout(ctx context.Context, req *ssov1.LogoutRequest) (*ssov1.LogoutResponse, error) {
-	boolean, err := s.auth.Logout(ctx, req.GetLogin(), req.GetToken())
+	boolean, err := s.auth.Logout(ctx, req.GetToken())
 	if err != nil {
 		return nil, status.Error(codes.Internal, "internal error")
 	}

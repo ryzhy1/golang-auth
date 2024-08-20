@@ -2,6 +2,7 @@ package app
 
 import (
 	grpcapp "AuthService/internal/app/grpc"
+	account_manager "AuthService/internal/services/account-manager"
 	"AuthService/internal/services/auth"
 	"AuthService/internal/storage/postgres"
 	"AuthService/internal/storage/redis"
@@ -13,7 +14,7 @@ type App struct {
 	GRPCSrv *grpcapp.App
 }
 
-func New(log *slog.Logger, grpcPort, redisStorage, redisPassword string, redisDbNumber int, storagePath string, tokenTTL time.Duration) *App {
+func New(log *slog.Logger, grpcPort, accountPort, redisStorage, redisPassword string, redisDbNumber int, storagePath string, tokenTTL time.Duration) *App {
 	storage, err := postgres.New(storagePath)
 	if err != nil {
 		panic(err)
@@ -24,9 +25,11 @@ func New(log *slog.Logger, grpcPort, redisStorage, redisPassword string, redisDb
 		panic(err)
 	}
 
-	authSerivce := auth.New(log, redisDB, storage, storage, tokenTTL)
+	AuthService := auth.New(log, redisDB, storage, storage, tokenTTL)
 
-	grpcApp := grpcapp.New(log, authSerivce, grpcPort)
+	AccountService := account_manager.New(log, storage, tokenTTL)
+
+	grpcApp := grpcapp.New(log, AuthService, AccountService, grpcPort, accountPort)
 
 	return &App{
 		GRPCSrv: grpcApp,

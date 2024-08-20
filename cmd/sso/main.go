@@ -28,9 +28,9 @@ func main() {
 
 	log := setupLogger(cfg.Env)
 
-	log.Info("Starting sso service", "env", cfg.Env)
+	log.Info("Starting account service", "env", cfg.Env)
 
-	application := app.New(log, strconv.Itoa(cfg.GRPC.Port), cfg.Redis.Storage, cfg.Redis.Password, cfg.Redis.Db, cfg.Storage, cfg.TokenTTL)
+	application := app.New(log, strconv.Itoa(cfg.GRPC.AuthPort), strconv.Itoa(cfg.GRPC.AccountPort), cfg.Redis.Storage, cfg.Redis.Password, cfg.Redis.Db, cfg.Storage, cfg.TokenTTL)
 
 	go application.GRPCSrv.MustRun()
 
@@ -43,7 +43,6 @@ func main() {
 	log.Info("Application stopped", slog.String("signal", sign.String()))
 
 	application.GRPCSrv.Stop()
-
 }
 
 func setupLogger(env string) *slog.Logger {
