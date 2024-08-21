@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  account-service:
+    image: account-service
+    build: ./
+    command: ./auth-service
+    ports:
+      - 8080:8080
+    depends_on:
+      - db
+    environment:
+      - JWT_SECRET=yaroslav_and_murad_are_awesome
+      - CONFIG_PATH=./config/local.yaml
+
+  db:
+    restart: always
+    image: postgres:latest
+    volumes:
+      - ./.database/postgres/data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres

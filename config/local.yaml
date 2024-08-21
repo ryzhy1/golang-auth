@@ -1,5 +1,5 @@
 env: "local"
-storage_path: "postgres://postgres:123@localhost:5432/postgres?sslmode=disable"
+storage_path: "postgres://postgres:postgres@db:5432/postgres?sslmode=disable"
 token_ttl: "3600s"
 grpc:
   authPort: 50051
