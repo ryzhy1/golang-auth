@@ -5,4 +5,3 @@ COPY ./ ./
 RUN go mod download
 RUN go build -o auth-service ./cmd/sso/main.go
 CMD ["./auth-service"]
-EXPOSE 8080

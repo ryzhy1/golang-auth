@@ -6,12 +6,12 @@ services:
     build: ./
     command: ./auth-service
     ports:
-      - 8080:8080
+      - 8081:8081
     depends_on:
       - db
     environment:
       - JWT_SECRET=yaroslav_and_murad_are_awesome
-      - CONFIG_PATH=./config/local.yaml
+      - CONFIG_PATH=./config/dev.yaml
 
   db:
     restart: always
