@@ -2,11 +2,11 @@ version: "3.8"
 
 services:
   account-service:
-    image: account-service
+    image: auth-service
     build: ./
     command: ./auth-service
     ports:
-      - 8081:8081
+      - "8081:8081"
     depends_on:
       - db
     environment:

@@ -14,45 +14,31 @@ type Storage struct {
 
 // InitRedis инициализирует клиент Redis.
 func InitRedis(connStr, redisPassword string, redisDbNumber int) (*Storage, error) {
+	const op = "storage.redis.InitRedis"
+
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     connStr,       // Адрес и порт Redis сервера
-		Password: redisPassword, // Пароль, если он установлен
-		DB:       redisDbNumber, // Номер базы данных Redis
+		Addr:     connStr,
+		Password: redisPassword,
+		DB:       redisDbNumber,
 	})
+
+	_, err := redisClient.Ping(context.Background()).Result()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
 	return &Storage{db: redisClient}, nil
 }
 
-func (s *Storage) SaveUserCache(ctx context.Context, login, token string, duration time.Duration) error {
+func (s *Storage) SaveUserCache(ctx context.Context, userID, token string, duration time.Duration) error {
 	const op = "storage.Redis.SaveToken"
 
-	err := s.db.Set(ctx, login, token, duration).Err()
+	err := s.db.Set(ctx, token, userID, duration).Err()
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
 	return err
-}
-
-func (s *Storage) InvalidateToken(ctx context.Context, token string) error {
-	const op = "storage.Redis.InvalidateToken"
-
-	err := s.db.Del(ctx, token).Err()
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	return err
-}
-
-func (s *Storage) IsTokenValid(ctx context.Context, token string) bool {
-	const op = "storage.Redis.IsTokenValid"
-
-	result, err := s.db.Exists(ctx, token).Result()
-	if err != nil {
-		_ = fmt.Errorf("%s: %w", op, err)
-		return false
-	}
-	return result == 1
 }
 
 func (s *Storage) LogoutUser(ctx context.Context, token string) (bool, error) {
@@ -72,4 +58,27 @@ func (s *Storage) LogoutUser(ctx context.Context, token string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (s *Storage) DeleteRefreshToken(ctx context.Context, refreshToken string) error {
+	const op = "storage.Redis.DeleteRefreshToken"
+
+	err := s.db.Del(ctx, refreshToken).Err()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+
+}
+
+func (s *Storage) GetUserIDByRefreshToken(ctx context.Context, refreshToken string) (userID string, err error) {
+	const op = "storage.Redis.GetUserIDByRefreshToken"
+
+	userID, err = s.db.Get(ctx, refreshToken).Result()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	return userID, nil
 }

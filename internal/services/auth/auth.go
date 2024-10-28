@@ -15,24 +15,27 @@ import (
 )
 
 type Auth struct {
-	log          *slog.Logger
-	userLogout   UserLogout
-	userSaver    UserSaver
-	userProvider UserProvider
-	tokenTTL     time.Duration
-}
-
-type UserLogout interface {
-	LogoutUser(ctx context.Context, token string) (status bool, err error)
-	SaveUserCache(ctx context.Context, login, token string, duration time.Duration) error
+	log           *slog.Logger
+	userSaver     UserSaver
+	userProvider  UserProvider
+	redisProvider RedisProvider
+	tokenTTL      time.Duration
 }
 
 type UserSaver interface {
 	SaveUser(ctx context.Context, id uuid.UUID, login, email string, password []byte, createdAt time.Time) (uid string, err error)
+	CheckUsernameIsAvailable(ctx context.Context, login string) (status bool, err error)
+	CheckEmailIsAvailable(ctx context.Context, email string) (status bool, err error)
 }
 
 type UserProvider interface {
-	GetUser(ctx context.Context, input string) (user *models.User, err error)
+	GetUser(ctx context.Context, inputType, input string) (user *models.User, err error)
+}
+
+type RedisProvider interface {
+	SaveUserCache(ctx context.Context, userID, token string, duration time.Duration) error
+	DeleteRefreshToken(ctx context.Context, refreshToken string) error
+	GetUserIDByRefreshToken(ctx context.Context, refreshToken string) (userID string, err error)
 }
 
 var (
@@ -41,13 +44,14 @@ var (
 )
 
 // New return a new instance of the Auth service
-func New(log *slog.Logger, userLogout UserLogout, userSaver UserSaver, userProvider UserProvider, tokenTTL time.Duration) *Auth {
+func New(log *slog.Logger, userSaver UserSaver, userProvider UserProvider,
+	redisProvider RedisProvider, tokenTTL time.Duration) *Auth {
 	return &Auth{
-		log:          log,
-		userLogout:   userLogout,
-		userSaver:    userSaver,
-		userProvider: userProvider,
-		tokenTTL:     tokenTTL,
+		log:           log,
+		userSaver:     userSaver,
+		userProvider:  userProvider,
+		redisProvider: redisProvider,
+		tokenTTL:      tokenTTL,
 	}
 }
 
@@ -61,6 +65,22 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 
 	if status := middlewares.CheckRegister(login, email, password); status != true {
 		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
+
+	if status, err := a.userSaver.CheckUsernameIsAvailable(ctx, login); status != true || err != nil {
+		if err != nil {
+			log.Error("failed to check login availability", err)
+		}
+
+		return "", fmt.Errorf("%s: %w", op, ErrUserAlreadyExists)
+	}
+
+	if status, err := a.userSaver.CheckEmailIsAvailable(ctx, email); status != true || err != nil {
+		if err != nil {
+			log.Error("failed to check email availability", err)
+		}
+
+		return "", fmt.Errorf("%s: %w", op, ErrUserAlreadyExists)
 	}
 
 	log.Info("registering new user")
@@ -95,7 +115,7 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 	return id, nil
 }
 
-func (a *Auth) Login(ctx context.Context, input, password string) (token string, err error) {
+func (a *Auth) Login(ctx context.Context, input, password string) (string, string, error) {
 	const op = "auth.Login"
 
 	log := a.log.With(
@@ -104,47 +124,110 @@ func (a *Auth) Login(ctx context.Context, input, password string) (token string,
 	)
 
 	if status := middlewares.CheckLogin(input, password); status != true {
-		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
 	log.Info("logging in")
 
-	user, err := a.userProvider.GetUser(ctx, input)
+	inputType := middlewares.IdentifyLoginInputType(input)
+
+	user, err := a.userProvider.GetUser(ctx, inputType, input)
 	if err != nil {
 		if errors.Is(err, storage.ErrUserNotFound) {
 			a.log.Warn("user not found", err)
 
-			return "", fmt.Errorf("%s: %w", op, err)
+			return "", "", fmt.Errorf("%s: %w", op, err)
 		}
 
 		a.log.Error("failed to get user", err)
 
-		return "", fmt.Errorf("%s: %w", op, err)
+		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	if err = bcrypt.CompareHashAndPassword(user.Password, []byte(password)); err != nil {
+	if err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		a.log.Info("invalid credentials", err)
 
-		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
 	log.Info("user logged in")
 
-	token, err = jwt.NewToken(user, a.tokenTTL)
+	accessToken, err := jwt.NewToken(user, a.tokenTTL)
 	if err != nil {
 		a.log.Error("failed to generate token", err)
 
-		return "", fmt.Errorf("%s: %w", op, err)
+		return "", "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	refreshToken, err := middlewares.UUIDGenerator()
+	if err != nil {
+		a.log.Error("failed to generate token", err)
+
+		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
 	a.log.Info("adding token and user to cache")
 
-	err = a.userLogout.SaveUserCache(ctx, user.Login, token, a.tokenTTL)
+	err = a.redisProvider.SaveUserCache(ctx, refreshToken.String(), user.ID.String(), a.tokenTTL)
 	if err != nil {
-		return "", err
+		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	return token, nil
+	return accessToken, refreshToken.String(), nil
+}
+
+func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (string, string, error) {
+	const op = "auth.RefreshToken"
+
+	log := a.log.With(
+		slog.String("op", op),
+		slog.String("refreshToken", refreshToken),
+	)
+
+	log.Info("refreshing tokens")
+
+	// Находим пользователя по refresh токену в Redis
+	userID, err := a.redisProvider.GetUserIDByRefreshToken(ctx, refreshToken) // Нужно реализовать этот метод
+	if err != nil {
+		a.log.Warn("invalid refresh token", err)
+		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
+
+	// Получаем данные пользователя
+	user, err := a.userProvider.GetUser(ctx, "id", userID)
+	if err != nil {
+		a.log.Error("failed to get user", err)
+		return "", "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	// Генерируем новый access token
+	accessToken, err := jwt.NewToken(user, a.tokenTTL)
+	if err != nil {
+		a.log.Error("failed to generate access token", err)
+		return "", "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	// Генерируем новый refresh token
+	newRefreshToken, err := middlewares.UUIDGenerator()
+	if err != nil {
+		a.log.Error("failed to generate refresh token", err)
+		return "", "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	// Сохраняем новый refresh token в Redis и удаляем старый
+	err = a.redisProvider.SaveUserCache(ctx, newRefreshToken.String(), user.ID.String(), 7*24*time.Hour)
+	if err != nil {
+		a.log.Error("failed to save new refresh token", err)
+		return "", "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	err = a.redisProvider.DeleteRefreshToken(ctx, refreshToken) // Удаление старого токена
+	if err != nil {
+		a.log.Error("failed to delete old refresh token", err)
+		return "", "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	return accessToken, newRefreshToken.String(), nil
 }
 
 func (a *Auth) Logout(ctx context.Context, token string) (bool, error) {
@@ -156,7 +239,7 @@ func (a *Auth) Logout(ctx context.Context, token string) (bool, error) {
 
 	log.Info("logging out")
 
-	status, err := a.userLogout.LogoutUser(ctx, token)
+	err := a.redisProvider.DeleteRefreshToken(ctx, token)
 	if err != nil {
 		if errors.Is(err, storage.ErrNoActiveSession) {
 			a.log.Warn("user already logged out", err)
@@ -167,5 +250,7 @@ func (a *Auth) Logout(ctx context.Context, token string) (bool, error) {
 		return false, fmt.Errorf("%s: %w", op, err)
 	}
 
-	return status, nil
+	log.Info("user successfully logged out")
+
+	return true, nil
 }

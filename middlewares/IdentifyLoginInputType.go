@@ -4,5 +4,5 @@ func IdentifyLoginInputType(input string) string {
 	if CorrectEmailChecker(input) {
 		return "email"
 	}
-	return "login"
+	return "username"
 }

@@ -16,9 +16,8 @@ type Config struct {
 }
 
 type GRPCConfig struct {
-	AuthPort    int `yaml:"authPort" env-required:"true"`
-	AccountPort int `yaml:"accountPort" env-required:"true"`
-	Timeout     string
+	AuthPort int `yaml:"authPort" env-required:"true"`
+	Timeout  string
 }
 
 type RedisConfig struct {

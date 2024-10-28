@@ -7,7 +7,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 )
 
-func main() {
+func Migrate() {
 	var storagePath, migratorPath, migrationTable string
 
 	flag.StringVar(&storagePath, "storage-path", "", "path to storage")

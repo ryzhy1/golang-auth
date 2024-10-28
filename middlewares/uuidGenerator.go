@@ -5,9 +5,9 @@ import (
 )
 
 func UUIDGenerator() (uuid.UUID, error) {
-	id, err := uuid.NewRandom()
+	uid, err := uuid.NewUUID()
 	if err != nil {
-		return id, err
+		return uid, err
 	}
-	return id, nil
+	return uid, nil
 }

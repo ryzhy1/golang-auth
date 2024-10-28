@@ -1,11 +1,14 @@
-env: "local"
+env: "dev"
 storage_path: "postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable"
 token_ttl: "3600s"
 grpc:
   authPort: 50051
-  accountPort: 50053
   timeout: "10s"
 redis:
   storage: "localhost:6379"
   password: ""
   db: 0
+jwt:
+  secret: "yaroslav_and_murad_are_awesome"
+  expiration_minutes: 15
+  refresh_expiration_days: 7

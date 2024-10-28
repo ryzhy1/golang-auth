@@ -3,62 +3,53 @@ package postgres
 import (
 	"AuthService/internal/domain/models"
 	"AuthService/internal/storage"
-	"AuthService/middlewares"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/Masterminds/squirrel"
+	_ "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq"
 	"time"
 )
 
 type Storage struct {
-	db *sqlx.DB
+	db *pgxpool.Pool
 }
 
-func New(connStr string) (*Storage, error) {
-	const op = "storage.DB.New"
+func NewPostgres(conn string) (*Storage, error) {
+	const op = "storage.postgres.New"
 
-	db, err := sqlx.Open("postgres", connStr)
+	db, err := pgxpool.New(context.Background(), conn)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	if err = db.Ping(); err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
-	}
-
-	return &Storage{db: db}, nil
+	return &Storage{
+		db: db,
+	}, nil
 }
 
-func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, login, email string, passHash []byte, createdAt time.Time) (string, error) {
+func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, username, email string, passHash []byte,
+	createdAt time.Time) (string, error) {
 	const op = "storage.Postgres.SaveUser"
 
-	if u, _ := s.GetUser(ctx, login); u != nil {
-		return "", fmt.Errorf("%s: %w", op, storage.ErrUserAlreadyExists)
-	}
-
-	if u, _ := s.GetUser(ctx, email); u != nil {
-		return "", fmt.Errorf("%s: %w", op, storage.ErrUserAlreadyExists)
-	}
-
-	stmt, err := s.db.PrepareContext(ctx, "INSERT INTO users (id, login, email, password, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id")
+	sql, args, err := squirrel.Insert("users").
+		Columns("id", "username", "email", "password", "created_at").
+		Values(id, username, email, passHash, createdAt).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
-	defer func(stmt *sql.Stmt) {
-		err := stmt.Close()
-		if err != nil {
-			fmt.Println(err)
-		}
-	}(stmt)
 
-	err = stmt.QueryRowContext(ctx, id, login, email, passHash, createdAt).Scan(&id)
+	_, err = s.db.Exec(ctx, sql, args...)
 	if err != nil {
 		var pgErr *pq.Error
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return "", fmt.Errorf("%s: %w", op, storage.ErrUserAlreadyExists)
 		}
 
@@ -69,97 +60,83 @@ func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, login, email strin
 }
 
 // GetUser fetches a user by login or email
-func (s *Storage) GetUser(ctx context.Context, input string) (*models.User, error) {
+func (s *Storage) GetUser(ctx context.Context, inputType, input string) (*models.User, error) {
 	const op = "storage.Postgres.GetUser"
 
+	var pgUUID pgtype.UUID
 	var user models.User
-	var query string
-	var err error
 
-	switch middlewares.IdentifyLoginInputType(input) {
-	case "email":
-		query = "SELECT id, login, email, password FROM users WHERE email = $1"
-		err = s.db.GetContext(ctx, &user, query, input)
-	case "login":
-		query = "SELECT id, login, email, password FROM users WHERE login = $1"
-		err = s.db.GetContext(ctx, &user, query, input)
+	sql, args, err := squirrel.Select("id", "username", "email", "password").
+		From("users").
+		Where(squirrel.Eq{inputType: input}).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
+	err = s.db.QueryRow(ctx, sql, args...).Scan(&pgUUID, &user.Username, &user.Email, &user.Password)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
 		}
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	return &user, nil
-}
-
-func (s *Storage) CreatePurchase(ctx context.Context, userID string, amount float64) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *Storage) UpdateBalance(ctx context.Context, username string, amount float64) error {
-	const op = "storage.Postgres.UpdateBalance"
-
-	query := "UPDATE users SET balance = $1, updated_at = NOW() WHERE login = $2"
-	_, err := s.db.ExecContext(ctx, query, amount, username)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	return nil
-}
-
-func (s *Storage) GetUserByID(ctx context.Context, username string) (*models.User, error) {
-	const op = "storage.Postgres.GetUserByID"
-
-	var user models.User
-	query := "SELECT id, login, email, password, balance, discount FROM users WHERE login = $1"
-	err := s.db.GetContext(ctx, &user, query, username)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w", op, err)
-	}
+	user.ID = uuid.UUID(pgUUID.Bytes)
 
 	return &user, nil
-}
-
-func (s *Storage) UpdateEmail(ctx context.Context, username, newEmail string) error {
-	const op = "storage.Postgres.UpdateEmail"
-
-	var user models.User
-
-	query := "SELECT id FROM users WHERE email = $1"
-	err := s.db.GetContext(ctx, &user, query, newEmail)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%s: %w", op, storage.ErrEmailAlreadyTaken)
-	}
-
-	query = "UPDATE users SET email = $1, updated_at = NOW() WHERE login = $2"
-	_, err = s.db.ExecContext(ctx, query, newEmail, username)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	return nil
-}
-
-func (s *Storage) UpdatePassword(ctx context.Context, username string, newPassword []byte) error {
-	const op = "storage.Postgres.UpdatePassword"
-
-	query := "UPDATE users SET password = $1, updated_at = NOW() WHERE login = $2"
-	_, err := s.db.ExecContext(ctx, query, newPassword, username)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	return nil
 }
 
 func (s *Storage) Close() error {
-	return s.db.Close()
+	s.db.Close()
+	return nil
+}
+
+func (s *Storage) CheckUsernameIsAvailable(ctx context.Context, input string) (bool, error) {
+	const op = "storage.CheckLoginIsAvailable"
+
+	sql, args, err := squirrel.Select("id").
+		From("users").
+		Where(squirrel.Eq{"username": input}).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+
+	var id uuid.UUID
+	err = s.db.QueryRow(ctx, sql, args...).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil // Логин доступен
+		}
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return false, nil
+}
+
+func (s *Storage) CheckEmailIsAvailable(ctx context.Context, email string) (bool, error) {
+	const op = "storage.CheckEmailIsAvailable"
+
+	sql, args, err := squirrel.Select("id").
+		From("users").
+		Where(squirrel.Eq{"email": email}).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+
+	var id uuid.UUID
+	err = s.db.QueryRow(ctx, sql, args...).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil // Email доступен
+		}
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return false, nil
 }

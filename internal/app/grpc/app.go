@@ -1,7 +1,6 @@
 package grpcapp
 
 import (
-	accountgrpc "AuthService/internal/grpc/account-manager"
 	authgrpc "AuthService/internal/grpc/auth"
 	"context"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -23,21 +22,15 @@ type App struct {
 	accountPort   string
 }
 
-func New(log *slog.Logger, authService authgrpc.Auth, accountService accountgrpc.Account, authPort string, accountPort string) *App {
+func New(log *slog.Logger, authService authgrpc.Auth, authPort string) *App {
 	authServer := grpc.NewServer()
 	authgrpc.Register(authServer, authService)
 	reflection.Register(authServer)
 
-	accountServer := grpc.NewServer(grpc.UnaryInterceptor(accountgrpc.ServerInterceptor()))
-	accountgrpc.Register(accountServer, accountService)
-	reflection.Register(accountServer)
-
 	return &App{
-		log:           log,
-		authServer:    authServer,
-		accountServer: accountServer,
-		authPort:      ":" + authPort,
-		accountPort:   ":" + accountPort,
+		log:        log,
+		authServer: authServer,
+		authPort:   ":" + authPort,
 	}
 }
 
@@ -72,19 +65,6 @@ func (a *App) Run() error {
 
 	go func() {
 		defer wg.Done()
-		l, err := net.Listen("tcp", a.accountPort)
-		if err != nil {
-			log.Error("failed to listen for account server", "error", err)
-			return
-		}
-		log.Info("Account gRPC server started", "port", a.accountPort)
-		if err := a.accountServer.Serve(l); err != nil {
-			log.Error("failed to serve account server", "error", err)
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
 
 		mux := runtime.NewServeMux()
 
@@ -95,12 +75,6 @@ func (a *App) Run() error {
 		// Register AuthService endpoint
 		if err := ssov1.RegisterAuthServiceHandlerFromEndpoint(ctx, mux, a.authPort, opts); err != nil {
 			log.Error("failed to register AuthService handler", "error", err)
-			return
-		}
-
-		// Register AccountService endpoint
-		if err := ssov1.RegisterAccountServiceHandlerFromEndpoint(ctx, mux, a.accountPort, opts); err != nil {
-			log.Error("failed to register AccountService handler", "error", err)
 			return
 		}
 
