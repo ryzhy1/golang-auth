@@ -15,15 +15,14 @@ import (
 )
 
 type Auth struct {
-	log           *slog.Logger
-	userSaver     UserSaver
-	userProvider  UserProvider
-	redisProvider RedisProvider
-	tokenTTL      time.Duration
+	log          *slog.Logger
+	userSaver    UserSaver
+	userProvider UserProvider
+	tokenTTL     time.Duration
 }
 
 type UserSaver interface {
-	SaveUser(ctx context.Context, id uuid.UUID, login, email string, password []byte, createdAt time.Time) (uid string, err error)
+	SaveUser(ctx context.Context, id uuid.UUID, login, email string, password []byte) (uid string, err error)
 	CheckUsernameIsAvailable(ctx context.Context, login string) (status bool, err error)
 	CheckEmailIsAvailable(ctx context.Context, email string) (status bool, err error)
 }
@@ -32,26 +31,18 @@ type UserProvider interface {
 	GetUser(ctx context.Context, inputType, input string) (user *models.User, err error)
 }
 
-type RedisProvider interface {
-	SaveUserCache(ctx context.Context, userID, token string, duration time.Duration) error
-	DeleteRefreshToken(ctx context.Context, refreshToken string) error
-	GetUserIDByRefreshToken(ctx context.Context, refreshToken string) (userID string, err error)
-}
-
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUserAlreadyExists  = errors.New("user already exists")
 )
 
 // New return a new instance of the Auth service
-func New(log *slog.Logger, userSaver UserSaver, userProvider UserProvider,
-	redisProvider RedisProvider, tokenTTL time.Duration) *Auth {
+func New(log *slog.Logger, userSaver UserSaver, userProvider UserProvider, tokenTTL time.Duration) *Auth {
 	return &Auth{
-		log:           log,
-		userSaver:     userSaver,
-		userProvider:  userProvider,
-		redisProvider: redisProvider,
-		tokenTTL:      tokenTTL,
+		log:          log,
+		userSaver:    userSaver,
+		userProvider: userProvider,
+		tokenTTL:     tokenTTL,
 	}
 }
 
@@ -69,7 +60,7 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 
 	if status, err := a.userSaver.CheckUsernameIsAvailable(ctx, login); status != true || err != nil {
 		if err != nil {
-			log.Error("failed to check login availability", err)
+			log.Error("this username already taken", err)
 		}
 
 		return "", fmt.Errorf("%s: %w", op, ErrUserAlreadyExists)
@@ -77,7 +68,7 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 
 	if status, err := a.userSaver.CheckEmailIsAvailable(ctx, email); status != true || err != nil {
 		if err != nil {
-			log.Error("failed to check email availability", err)
+			log.Error("this email already taken", err)
 		}
 
 		return "", fmt.Errorf("%s: %w", op, ErrUserAlreadyExists)
@@ -97,7 +88,7 @@ func (a *Auth) Register(ctx context.Context, login, email, password string) (use
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	id, err := a.userSaver.SaveUser(ctx, uid, login, email, passHash, time.Now())
+	id, err := a.userSaver.SaveUser(ctx, uid, login, email, passHash)
 	if err != nil {
 		if errors.Is(err, storage.ErrUserAlreadyExists) {
 			a.log.Warn("user already exists", err)
@@ -168,89 +159,59 @@ func (a *Auth) Login(ctx context.Context, input, password string) (string, strin
 
 	a.log.Info("adding token and user to cache")
 
-	err = a.redisProvider.SaveUserCache(ctx, refreshToken.String(), user.ID.String(), a.tokenTTL)
-	if err != nil {
-		return "", "", fmt.Errorf("%s: %w", op, err)
-	}
-
 	return accessToken, refreshToken.String(), nil
 }
 
-func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (string, string, error) {
-	const op = "auth.RefreshToken"
-
-	log := a.log.With(
-		slog.String("op", op),
-		slog.String("refreshToken", refreshToken),
-	)
-
-	log.Info("refreshing tokens")
-
-	// Находим пользователя по refresh токену в Redis
-	userID, err := a.redisProvider.GetUserIDByRefreshToken(ctx, refreshToken) // Нужно реализовать этот метод
-	if err != nil {
-		a.log.Warn("invalid refresh token", err)
-		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
-	}
-
-	// Получаем данные пользователя
-	user, err := a.userProvider.GetUser(ctx, "id", userID)
-	if err != nil {
-		a.log.Error("failed to get user", err)
-		return "", "", fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Генерируем новый access token
-	accessToken, err := jwt.NewToken(user, a.tokenTTL)
-	if err != nil {
-		a.log.Error("failed to generate access token", err)
-		return "", "", fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Генерируем новый refresh token
-	newRefreshToken, err := middlewares.UUIDGenerator()
-	if err != nil {
-		a.log.Error("failed to generate refresh token", err)
-		return "", "", fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Сохраняем новый refresh token в Redis и удаляем старый
-	err = a.redisProvider.SaveUserCache(ctx, newRefreshToken.String(), user.ID.String(), 7*24*time.Hour)
-	if err != nil {
-		a.log.Error("failed to save new refresh token", err)
-		return "", "", fmt.Errorf("%s: %w", op, err)
-	}
-
-	err = a.redisProvider.DeleteRefreshToken(ctx, refreshToken) // Удаление старого токена
-	if err != nil {
-		a.log.Error("failed to delete old refresh token", err)
-		return "", "", fmt.Errorf("%s: %w", op, err)
-	}
-
-	return accessToken, newRefreshToken.String(), nil
-}
-
-func (a *Auth) Logout(ctx context.Context, token string) (bool, error) {
-	const op = "auth.Logout"
-
-	log := a.log.With(
-		slog.String("op", op),
-	)
-
-	log.Info("logging out")
-
-	err := a.redisProvider.DeleteRefreshToken(ctx, token)
-	if err != nil {
-		if errors.Is(err, storage.ErrNoActiveSession) {
-			a.log.Warn("user already logged out", err)
-
-			return false, fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
-		}
-
-		return false, fmt.Errorf("%s: %w", op, err)
-	}
-
-	log.Info("user successfully logged out")
-
-	return true, nil
-}
+//func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (string, string, error) {
+//	const op = "auth.RefreshToken"
+//
+//	log := a.log.With(
+//		slog.String("op", op),
+//		slog.String("refreshToken", refreshToken),
+//	)
+//
+//	log.Info("refreshing tokens")
+//
+//	// Находим пользователя по refresh токену в Redis
+//	userID, err := a.redisProvider.GetUserIDByRefreshToken(ctx, refreshToken) // Нужно реализовать этот метод
+//	if err != nil {
+//		a.log.Warn("invalid refresh token", err)
+//		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+//	}
+//
+//	// Получаем данные пользователя
+//	user, err := a.userProvider.GetUser(ctx, "id", userID)
+//	if err != nil {
+//		a.log.Error("failed to get user", err)
+//		return "", "", fmt.Errorf("%s: %w", op, err)
+//	}
+//
+//	// Генерируем новый access token
+//	accessToken, err := jwt.NewToken(user, a.tokenTTL)
+//	if err != nil {
+//		a.log.Error("failed to generate access token", err)
+//		return "", "", fmt.Errorf("%s: %w", op, err)
+//	}
+//
+//	// Генерируем новый refresh token
+//	newRefreshToken, err := middlewares.UUIDGenerator()
+//	if err != nil {
+//		a.log.Error("failed to generate refresh token", err)
+//		return "", "", fmt.Errorf("%s: %w", op, err)
+//	}
+//
+//	// Сохраняем новый refresh token в Redis и удаляем старый
+//	err = a.redisProvider.SaveUserCache(ctx, newRefreshToken.String(), user.ID.String(), 7*24*time.Hour)
+//	if err != nil {
+//		a.log.Error("failed to save new refresh token", err)
+//		return "", "", fmt.Errorf("%s: %w", op, err)
+//	}
+//
+//	err = a.redisProvider.DeleteRefreshToken(ctx, refreshToken) // Удаление старого токена
+//	if err != nil {
+//		a.log.Error("failed to delete old refresh token", err)
+//		return "", "", fmt.Errorf("%s: %w", op, err)
+//	}
+//
+//	return accessToken, newRefreshToken.String(), nil
+//}

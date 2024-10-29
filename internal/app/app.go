@@ -4,7 +4,6 @@ import (
 	grpcapp "AuthService/internal/app/grpc"
 	"AuthService/internal/services/auth"
 	"AuthService/internal/storage/postgres"
-	"AuthService/internal/storage/redis"
 	"log/slog"
 	"time"
 )
@@ -19,12 +18,12 @@ func New(log *slog.Logger, grpcPort, redisStorage, redisPassword string, redisDb
 		panic(err)
 	}
 
-	redisDB, err := redis.InitRedis(redisStorage, redisPassword, redisDbNumber)
+	//redisDB, err := redis.InitRedis(redisStorage, redisPassword, redisDbNumber)
 	if err != nil {
 		panic(err)
 	}
 
-	AuthService := auth.New(log, storage, storage, redisDB, tokenTTL)
+	AuthService := auth.New(log, storage, storage, tokenTTL)
 
 	grpcApp := grpcapp.New(log, AuthService, grpcPort)
 

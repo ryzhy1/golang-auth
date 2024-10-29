@@ -33,13 +33,12 @@ func NewPostgres(conn string) (*Storage, error) {
 	}, nil
 }
 
-func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, username, email string, passHash []byte,
-	createdAt time.Time) (string, error) {
+func (s *Storage) SaveUser(ctx context.Context, id uuid.UUID, username, email string, passHash []byte) (string, error) {
 	const op = "storage.Postgres.SaveUser"
 
 	sql, args, err := squirrel.Insert("users").
 		Columns("id", "username", "email", "password", "created_at").
-		Values(id, username, email, passHash, createdAt).
+		Values(id, username, email, passHash, time.Now()).
 		PlaceholderFormat(squirrel.Dollar).
 		ToSql()
 	if err != nil {
