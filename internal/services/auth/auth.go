@@ -141,8 +141,6 @@ func (a *Auth) Login(ctx context.Context, input, password string) (string, strin
 		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
-	log.Info("user logged in")
-
 	accessToken, err := jwt.NewToken(user, a.tokenTTL)
 	if err != nil {
 		a.log.Error("failed to generate token", err)
@@ -157,7 +155,7 @@ func (a *Auth) Login(ctx context.Context, input, password string) (string, strin
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	a.log.Info("adding token and user to cache")
+	log.Info("user logged in")
 
 	return accessToken, refreshToken.String(), nil
 }
