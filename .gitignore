@@ -1,4 +1,4 @@
 .idea/
 .env
 .database
-.config/
+.config

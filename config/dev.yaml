@@ -4,10 +4,6 @@ token_ttl: "3600s"
 grpc:
   authPort: 50051
   timeout: "10s"
-redis:
-  storage: "localhost:6379"
-  password: ""
-  db: 0
 jwt:
   secret: "yaroslav_and_murad_are_awesome"
   expiration_minutes: 15

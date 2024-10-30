@@ -30,7 +30,7 @@ func main() {
 
 	log.Info("Starting account service", "env", cfg.Env)
 
-	application := app.New(log, strconv.Itoa(cfg.GRPC.AuthPort), cfg.Redis.Storage, cfg.Redis.Password, cfg.Redis.Db, cfg.Storage, cfg.TokenTTL)
+	application := app.New(log, strconv.Itoa(cfg.GRPC.AuthPort), cfg.Storage, cfg.TokenTTL)
 
 	go application.GRPCSrv.MustRun()
 

@@ -5,7 +5,3 @@ grpc:
   authPort: 50051
   accountPort: 50053
   timeout: "10s"
-#redis:
-#  storage: "localhost:6379"
-#  password: ""
-#  db: 0

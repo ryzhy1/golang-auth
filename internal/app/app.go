@@ -12,7 +12,7 @@ type App struct {
 	GRPCSrv *grpcapp.App
 }
 
-func New(log *slog.Logger, grpcPort, redisStorage, redisPassword string, redisDbNumber int, storagePath string, tokenTTL time.Duration) *App {
+func New(log *slog.Logger, grpcPort, storagePath string, tokenTTL time.Duration) *App {
 	storage, err := postgres.NewPostgres(storagePath)
 	if err != nil {
 		panic(err)
