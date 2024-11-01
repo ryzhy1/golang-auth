@@ -87,11 +87,6 @@ func (s *Storage) GetUser(ctx context.Context, inputType, input string) (*models
 	return &user, nil
 }
 
-func (s *Storage) Close() error {
-	s.db.Close()
-	return nil
-}
-
 func (s *Storage) CheckUsernameIsAvailable(ctx context.Context, input string) (bool, error) {
 	const op = "storage.CheckLoginIsAvailable"
 
@@ -138,4 +133,97 @@ func (s *Storage) CheckEmailIsAvailable(ctx context.Context, email string) (bool
 	}
 
 	return false, nil
+}
+
+func (s *Storage) CheckUserByEmail(ctx context.Context, userId, email string) error {
+	const op = "storage.Postgres.GetUserEmail"
+
+	sql, args, err := squirrel.Select("email").
+		From("users").
+		Where(squirrel.Eq{"id": userId, "password": email}).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	var userEmail string
+	err = s.db.QueryRow(ctx, sql, args...).Scan(&userEmail)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%s: %w", op, storage.ErrWrongEmail)
+		}
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
+func (s *Storage) UpdateEmail(ctx context.Context, userId, email string) error {
+	const op = "storage.Postgres.UpdateEmail"
+
+	sql, args, err := squirrel.Update("users").
+		SetMap(squirrel.Eq{"email": email}).
+		Where(squirrel.Eq{"id": userId}).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	_, err = s.db.Exec(ctx, sql, args...)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
+func (s *Storage) CheckUserByPassword(ctx context.Context, userId, password string) (string, error) {
+	const op = "storage.Postgres.CheckUserByPassword"
+
+	sql, args, err := squirrel.Select("password").
+		From("users").
+		Where(squirrel.Eq{"id": userId}).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	var userPassword string
+	err = s.db.QueryRow(ctx, sql, args...).Scan(&userPassword)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%s: %w", op, storage.ErrWrongPassword)
+		}
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	return userPassword, nil
+}
+
+func (s *Storage) UpdatePassword(ctx context.Context, userId, password string) error {
+	const op = "storage.Postgres.UpdatePassword"
+
+	sql, args, err := squirrel.Update("users").
+		SetMap(squirrel.Eq{"password": password}).
+		Where(squirrel.Eq{"id": userId}).
+		PlaceholderFormat(squirrel.Dollar).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	_, err = s.db.Exec(ctx, sql, args...)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
+func (s *Storage) Close() error {
+	s.db.Close()
+	return nil
 }

@@ -15,7 +15,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/pkg/errors v0.9.1
-	github.com/ryzhy1/protos v0.0.30
+	github.com/ryzhy1/protos v0.0.35
 	golang.org/x/crypto v0.27.0
 	google.golang.org/grpc v1.65.0
 )
