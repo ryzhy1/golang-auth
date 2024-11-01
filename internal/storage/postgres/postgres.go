@@ -82,7 +82,7 @@ func (s *Storage) GetUser(ctx context.Context, inputType, input string) (*models
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	user.ID = uuid.UUID(pgUUID.Bytes)
+	user.ID = pgUUID.Bytes
 
 	return &user, nil
 }
@@ -140,7 +140,7 @@ func (s *Storage) CheckUserByEmail(ctx context.Context, userId, email string) er
 
 	sql, args, err := squirrel.Select("email").
 		From("users").
-		Where(squirrel.Eq{"id": userId, "password": email}).
+		Where(squirrel.Eq{"id": userId, "email": email}).
 		PlaceholderFormat(squirrel.Dollar).
 		ToSql()
 	if err != nil {
@@ -164,6 +164,7 @@ func (s *Storage) UpdateEmail(ctx context.Context, userId, email string) error {
 
 	sql, args, err := squirrel.Update("users").
 		SetMap(squirrel.Eq{"email": email}).
+		SetMap(squirrel.Eq{"updated_at": time.Now()}).
 		Where(squirrel.Eq{"id": userId}).
 		PlaceholderFormat(squirrel.Dollar).
 		ToSql()
@@ -184,7 +185,7 @@ func (s *Storage) CheckUserByPassword(ctx context.Context, userId, password stri
 
 	sql, args, err := squirrel.Select("password").
 		From("users").
-		Where(squirrel.Eq{"id": userId}).
+		Where(squirrel.Eq{"id": userId, "password": password}).
 		PlaceholderFormat(squirrel.Dollar).
 		ToSql()
 	if err != nil {
@@ -208,6 +209,7 @@ func (s *Storage) UpdatePassword(ctx context.Context, userId, password string) e
 
 	sql, args, err := squirrel.Update("users").
 		SetMap(squirrel.Eq{"password": password}).
+		SetMap(squirrel.Eq{"updated_at": time.Now()}).
 		Where(squirrel.Eq{"id": userId}).
 		PlaceholderFormat(squirrel.Dollar).
 		ToSql()

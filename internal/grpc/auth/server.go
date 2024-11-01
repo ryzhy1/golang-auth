@@ -28,9 +28,9 @@ type Auth interface {
 		userId string,
 		oldEmail string,
 		newEmail string,
-	) (err error)
+	) (message string, err error)
 
-	UpdateUserPassword(ctx context.Context, userId, oldPassword, newPassword string) (err error)
+	UpdateUserPassword(ctx context.Context, userId, oldPassword, newPassword string) (message string, err error)
 }
 
 type serverAPI struct {
@@ -87,6 +87,8 @@ func (s *serverAPI) Register(ctx context.Context, req *ssov1.RegisterRequest) (*
 		if errors.Is(err, auth.ErrUserAlreadyExists) {
 			return nil, status.Error(codes.AlreadyExists, "user already exists")
 		}
+
+		return nil, status.Error(codes.Internal, "internal error")
 	}
 
 	return &ssov1.RegisterResponse{
@@ -107,15 +109,17 @@ func (s *serverAPI) UpdateEmail(ctx context.Context, req *ssov1.EmailRequest) (*
 		return nil, status.Error(codes.InvalidArgument, "new email is empty")
 	}
 
-	err := s.auth.UpdateUserEmail(ctx, req.GetUserId(), req.GetOldEmail(), req.GetNewEmail())
+	message, err := s.auth.UpdateUserEmail(ctx, req.GetUserId(), req.GetOldEmail(), req.GetNewEmail())
 	if err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
 			return nil, status.Error(codes.NotFound, "user not found")
 		}
+
+		return nil, status.Error(codes.Internal, "internal error")
 	}
 
 	return &ssov1.UpdateResponse{
-		Message: "email updated successfully",
+		Message: message,
 	}, nil
 
 }
@@ -133,7 +137,7 @@ func (s *serverAPI) UpdatePassword(ctx context.Context, req *ssov1.PasswordReque
 		return nil, status.Error(codes.InvalidArgument, "new password is empty")
 	}
 
-	err := s.auth.UpdateUserPassword(ctx, req.GetUserId(), req.GetOldPassword(), req.GetNewPassword())
+	message, err := s.auth.UpdateUserPassword(ctx, req.GetUserId(), req.GetOldPassword(), req.GetNewPassword())
 	if err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
 			return nil, status.Error(codes.NotFound, "user not found")
@@ -143,7 +147,7 @@ func (s *serverAPI) UpdatePassword(ctx context.Context, req *ssov1.PasswordReque
 	}
 
 	return &ssov1.UpdateResponse{
-		Message: "password updated successfully",
+		Message: message,
 	}, nil
 }
 

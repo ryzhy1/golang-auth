@@ -160,7 +160,7 @@ func (a *Auth) Login(ctx context.Context, input, password string) (string, strin
 	return accessToken, refreshToken.String(), nil
 }
 
-func (a *Auth) UpdateUserEmail(ctx context.Context, userId, oldEmail, newEmail string) error {
+func (a *Auth) UpdateUserEmail(ctx context.Context, userId, oldEmail, newEmail string) (string, error) {
 	const op = "auth.GetUserEmail"
 
 	log := a.log.With(
@@ -171,11 +171,11 @@ func (a *Auth) UpdateUserEmail(ctx context.Context, userId, oldEmail, newEmail s
 	log.Info("getting user email")
 
 	if status := middlewares.CorrectEmailChecker(oldEmail); status != true {
-		return fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
 	if status := middlewares.CorrectEmailChecker(newEmail); status != true {
-		return fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
 	err := a.userRepository.CheckUserByEmail(ctx, userId, oldEmail)
@@ -183,25 +183,25 @@ func (a *Auth) UpdateUserEmail(ctx context.Context, userId, oldEmail, newEmail s
 		if errors.Is(err, storage.ErrUserNotFound) {
 			a.log.Warn("user not found", err)
 
-			return fmt.Errorf("%s: %w", op, err)
+			return "", fmt.Errorf("%s: %w", op, err)
 		}
 
 		a.log.Error("failed to get user", err)
 
-		return fmt.Errorf("%s: %w", op, err)
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
 	err = a.userRepository.UpdateEmail(ctx, userId, newEmail)
 	if err != nil {
 		a.log.Error("failed to update user email", err)
 
-		return fmt.Errorf("%s: %w", op, err)
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	return nil
+	return "email updated successfully", nil
 }
 
-func (a *Auth) UpdateUserPassword(ctx context.Context, userId, oldPassword, newPassword string) error {
+func (a *Auth) UpdateUserPassword(ctx context.Context, userId, oldPassword, newPassword string) (string, error) {
 	const op = "auth.UpdateUserPassword"
 
 	log := a.log.With(
@@ -212,11 +212,11 @@ func (a *Auth) UpdateUserPassword(ctx context.Context, userId, oldPassword, newP
 	log.Info("checking user credentials")
 
 	if len(oldPassword) < 8 || len(newPassword) < 8 {
-		return fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
 	if oldPassword == newPassword {
-		return fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
 	log.Info("picking user password from database")
@@ -226,12 +226,12 @@ func (a *Auth) UpdateUserPassword(ctx context.Context, userId, oldPassword, newP
 		if errors.Is(err, storage.ErrUserNotFound) {
 			a.log.Warn("user not found", err)
 
-			return fmt.Errorf("%s: %w", op, err)
+			return "", fmt.Errorf("%s: %w", op, err)
 		}
 
 		a.log.Error("failed to get user", err)
 
-		return fmt.Errorf("%s: %w", op, err)
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
 	log.Info("comparing users password")
@@ -240,19 +240,26 @@ func (a *Auth) UpdateUserPassword(ctx context.Context, userId, oldPassword, newP
 	if err != nil {
 		a.log.Info("invalid credentials", err)
 
-		return fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
+
+	log.Info("hashing new password")
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		a.log.Error("failed to hash password", err)
+
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
 	log.Info("updating user password")
 
-	err = a.userRepository.UpdatePassword(ctx, userId, newPassword)
+	err = a.userRepository.UpdatePassword(ctx, userId, string(hashedPassword))
 	if err != nil {
 		a.log.Error("failed to update user password", err)
 
-		return fmt.Errorf("%s: %w", op, err)
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	log.Info("password updated successfully")
-
-	return nil
+	return "password updated successfully", nil
 }
